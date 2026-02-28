@@ -200,9 +200,23 @@ curl -X POST http://localhost:3001/api/auth/register \
 ## Deployment
 
 ### Neon (PostgreSQL)
-1. Create Neon project and copy connection URL.
-2. Set `DATABASE_URL` in API and worker environments.
-3. Run migrations against Neon (`pnpm db:migrate` from CI or release job).
+1. Create a Neon project and database.
+2. Copy the connection string from Neon. Use a URL with SSL enabled (for example `...?sslmode=require`).
+3. Set `DATABASE_URL` to the same Neon URL in:
+   - local DB migration context: `packages/db/.env` (or root `.env`)
+   - API runtime: `apps/api/.env`
+   - socket-worker runtime: `apps/socket-worker/.env`
+4. Run migrations against Neon:
+   ```bash
+   DATABASE_URL="postgresql://<user>:<password>@<host>/<db>?sslmode=require" pnpm db:migrate
+   ```
+5. Validate the API can reach Neon:
+   - Start services: `pnpm dev`
+   - Check readiness: `GET http://localhost:3001/api/ready` should return `{"status":"ready"}`
+6. Common issues:
+   - `ECONNREFUSED 127.0.0.1:5432`: `DATABASE_URL` is missing, so code falls back to local Postgres.
+   - `ENOTFOUND <neon-host>`: host/DNS/network issue or malformed URL.
+   - SSL errors: keep `sslmode=require` in the URL.
 
 ### Fly.io (socket-worker)
 1. `cd apps/socket-worker`
@@ -222,7 +236,12 @@ curl -X POST http://localhost:3001/api/auth/register \
    - `WORKER_URL` (`https://<fly-app>.fly.dev`)
    - `WORKER_TOKEN`
    - `JWT_SECRET`
+   - `JWT_REFRESH_SECRET`
+   - `ACCESS_TOKEN_TTL` (e.g. `15m`)
+   - `REFRESH_TOKEN_TTL_SECONDS` (e.g. `2592000`)
+   - `REFRESH_TOKEN_COOKIE_NAME` (e.g. `refreshToken`)
    - `CORS_ORIGIN`
+   - `VITE_SOCKET_URL` (`https://<fly-app>.fly.dev`)
 5. Deploy.
 
 ## Developer Ergonomics
