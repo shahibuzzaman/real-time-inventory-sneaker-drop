@@ -1,0 +1,25 @@
+{
+  "name": "sneaker-drop",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@10.6.2",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @sneaker-drop/api --filter @sneaker-drop/socket-worker --filter @sneaker-drop/client dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "db:migrate": "pnpm --filter @sneaker-drop/db db:migrate",
+    "db:migrate:undo": "pnpm --filter @sneaker-drop/db db:migrate:undo",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/eslint": "^9.6.1",
+    "@types/node": "^22.13.10",
+    "@typescript-eslint/eslint-plugin": "^8.26.0",
+    "@typescript-eslint/parser": "^8.26.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.0.1",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  }
+}

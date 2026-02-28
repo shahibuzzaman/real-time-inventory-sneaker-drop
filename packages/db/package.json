@@ -1,0 +1,28 @@
+{
+  "name": "@sneaker-drop/db",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "echo \"No tests for @sneaker-drop/db\"",
+    "db:migrate": "pnpm run build && node dist/umzug/cli.js up",
+    "db:migrate:undo": "pnpm run build && node dist/umzug/cli.js down"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.3",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.5",
+    "umzug": "^3.8.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "eslint": "^8.57.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

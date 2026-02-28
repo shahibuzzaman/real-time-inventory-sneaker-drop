@@ -1,0 +1,418 @@
+openapi: 3.1.0
+info:
+  title: Sneaker Drop Inventory API
+  version: 2.0.0
+servers:
+  - url: http://localhost:3001
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refreshToken
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+      required: [error]
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN, USER]
+      required: [id, username, role]
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+      required: [token, user]
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 8
+      required: [username, password]
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 8
+      required: [username, password]
+    Drop:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        priceCents:
+          type: integer
+        startsAt:
+          type: string
+          format: date-time
+        totalStock:
+          type: integer
+        availableStock:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, name, priceCents, startsAt, totalStock, availableStock]
+    CreateDropRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        priceCents:
+          type: integer
+          minimum: 1
+        totalStock:
+          type: integer
+          minimum: 1
+        startsAt:
+          type: string
+          format: date-time
+      required: [name, priceCents, totalStock, startsAt]
+    UpdateDropRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        priceCents:
+          type: integer
+          minimum: 1
+        totalStock:
+          type: integer
+          minimum: 1
+        startsAt:
+          type: string
+          format: date-time
+    Purchaser:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [userId, username, createdAt]
+    DropWithPurchasers:
+      allOf:
+        - $ref: '#/components/schemas/Drop'
+        - type: object
+          properties:
+            latestPurchasers:
+              type: array
+              items:
+                $ref: '#/components/schemas/Purchaser'
+          required: [latestPurchasers]
+    ReservationResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        dropId:
+          type: string
+          format: uuid
+        availableStock:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+      required: [reservationId, dropId, availableStock, expiresAt]
+    PurchaseRequest:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+      required: [reservationId]
+paths:
+  /api/health:
+    get:
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service healthy
+  /api/ready:
+    get:
+      summary: Readiness probe with DB check
+      responses:
+        '200':
+          description: Service ready
+  /api/auth/register:
+    post:
+      summary: Register user with username and password (role defaults to USER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /api/auth/login:
+    post:
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/auth/refresh:
+    post:
+      summary: Rotate refresh cookie and issue a new access token
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: Refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Missing or invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/auth/logout:
+    post:
+      summary: Revoke current refresh token and clear refresh cookie
+      security:
+        - refreshCookie: []
+      responses:
+        '204':
+          description: Logged out
+  /api/drops:
+    get:
+      summary: Admin list all drops
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Drop list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drops:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Drop'
+    post:
+      summary: Admin create drop
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDropRequest'
+      responses:
+        '201':
+          description: Drop created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drop:
+                    $ref: '#/components/schemas/Drop'
+        '409':
+          description: Duplicate drop name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/drops/{dropId}:
+    get:
+      summary: Admin get drop by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: dropId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Drop
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drop:
+                    $ref: '#/components/schemas/Drop'
+    patch:
+      summary: Admin update drop
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: dropId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDropRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drop:
+                    $ref: '#/components/schemas/Drop'
+    delete:
+      summary: Admin delete drop
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: dropId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  /api/drops/active:
+    get:
+      summary: Public active drops with latest purchasers
+      responses:
+        '200':
+          description: Active drops
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drops:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DropWithPurchasers'
+  /api/drops/{dropId}/reserve:
+    post:
+      summary: Reserve one unit (authenticated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: dropId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Reservation created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reservation:
+                    $ref: '#/components/schemas/ReservationResponse'
+  /api/drops/{dropId}/purchase:
+    post:
+      summary: Purchase using active reservation (authenticated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: dropId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseRequest'
+      responses:
+        '201':
+          description: Purchase created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  purchase:
+                    type: object
+                    properties:
+                      purchaseId:
+                        type: string
+                        format: uuid
