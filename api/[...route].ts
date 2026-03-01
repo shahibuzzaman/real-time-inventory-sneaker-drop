@@ -11,7 +11,13 @@ try {
 
 let dbReadyPromise: Promise<void> | null = null;
 let connectDbFn: (() => Promise<void>) | null = null;
-let appHandler: ((request: IncomingMessage, response: ServerResponse) => void) | null = null;
+let appHandler:
+  | ((
+      request: IncomingMessage,
+      response: ServerResponse,
+      next?: (error?: unknown) => void
+    ) => void)
+  | null = null;
 const DB_INIT_TIMEOUT_MS = Number.parseInt(process.env.DB_INIT_TIMEOUT_MS ?? '8000', 10);
 
 const getConnectDb = async (): Promise<() => Promise<void>> => {
@@ -53,13 +59,18 @@ const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: s
   }
 };
 
-const getAppHandler = (): ((request: IncomingMessage, response: ServerResponse) => void) => {
+const getAppHandler = (): ((
+  request: IncomingMessage,
+  response: ServerResponse,
+  next?: (error?: unknown) => void
+) => void) => {
   if (!appHandler) {
     // Load compiled API app to avoid Vercel type-checking API source with a different TS context.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     appHandler = require('../apps/api/dist/app').default as (
       request: IncomingMessage,
-      response: ServerResponse
+      response: ServerResponse,
+      next?: (error?: unknown) => void
     ) => void;
   }
 
@@ -73,11 +84,9 @@ type ApiResponse = ServerResponse<IncomingMessage> & {
 };
 
 const writeJson = (res: ApiResponse, statusCode: number, payload: unknown): void => {
-  const statusFn = res.status;
-  const jsonFn = res.json;
-  if (typeof statusFn === 'function' && typeof jsonFn === 'function') {
-    statusFn(statusCode);
-    jsonFn(payload);
+  if (typeof res.status === 'function' && typeof res.json === 'function') {
+    res.status(statusCode);
+    res.json(payload);
     return;
   }
 
@@ -99,6 +108,59 @@ const normalizeApiPath = (path: string): string => {
   }
 
   return `/api${normalized}`;
+};
+
+const invokeApp = async (
+  app: (request: IncomingMessage, response: ServerResponse, next?: (error?: unknown) => void) => void,
+  req: ApiRequest,
+  res: ApiResponse
+): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = (): void => {
+      res.off('finish', onFinish);
+      res.off('close', onClose);
+      res.off('error', onError);
+    };
+
+    const resolveOnce = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    const onFinish = (): void => resolveOnce();
+    const onClose = (): void => resolveOnce();
+    const onError = (error: Error): void => rejectOnce(error);
+
+    res.once('finish', onFinish);
+    res.once('close', onClose);
+    res.once('error', onError);
+
+    try {
+      app(req, res, (error?: unknown) => {
+        if (error) {
+          rejectOnce(error);
+          return;
+        }
+
+        if (res.writableEnded) {
+          resolveOnce();
+        }
+      });
+    } catch (error) {
+      rejectOnce(error);
+    }
+  });
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
@@ -128,7 +190,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       `Database initialization timed out after ${DB_INIT_TIMEOUT_MS}ms`
     );
     const app = getAppHandler();
-    app(req, res);
+    await invokeApp(app, req, res);
   } catch (error) {
     console.error('Failed to initialize API request', error);
     writeJson(res, 503, {
