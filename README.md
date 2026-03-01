@@ -2,11 +2,22 @@
 
 Production-oriented monorepo for a high-traffic limited sneaker drop system.
 
+## Live Links
+- App (Vercel): `https://real-time-inventory-sneaker-drop.vercel.app`
+- API Health: `https://real-time-inventory-sneaker-drop.vercel.app/api/health`
+- Socket Worker (Railway): `https://sneaker-dropsocket-worker-production.up.railway.app`
+- Socket Worker Health: `https://sneaker-dropsocket-worker-production.up.railway.app/health`
+
+## Demo Credentials
+- Admin login
+  - Username: `admin`
+  - Password: `12345678`
+
 ## Stack
 - Frontend: React + Vite + TypeScript + Tailwind + React Query
 - API: Node.js + Express + TypeScript + Zod + Sequelize
 - DB: PostgreSQL (Neon-compatible)
-- Realtime + worker: Socket.io + Express (always-on Fly.io service)
+- Realtime + worker: Socket.io + Express (Railway service)
 - Migrations: Umzug
 - Tests: Jest + Supertest
 - Monorepo: pnpm workspaces
@@ -183,10 +194,12 @@ Worker also exposes:
 
 ## Two-Window Demo
 1. Open app in two browsers.
-2. Register two accounts (both will be `USER` initially).
-3. Promote one account to admin directly in DB (`Users.role='ADMIN'`).
-4. Login again as promoted admin and create a drop from **Create Drop (Admin)**.
-5. Sign in as user in another window and reserve/purchase.
+2. Login as admin in one window:
+   - Username: `admin`
+   - Password: `12345678`
+3. Register/login as a normal user in another window.
+4. Create a drop from the admin dashboard.
+5. Sign in as user in the second window and reserve/purchase.
 6. Watch stock updates instantly and purchase countdown.
 
 Fallback API seed:
@@ -218,14 +231,19 @@ curl -X POST http://localhost:3001/api/auth/register \
    - `ENOTFOUND <neon-host>`: host/DNS/network issue or malformed URL.
    - SSL errors: keep `sslmode=require` in the URL.
 
-### Fly.io (socket-worker)
-1. `cd apps/socket-worker`
-2. `fly launch --no-deploy` (if first deploy)
-3. Configure secrets:
-   - `fly secrets set DATABASE_URL=...`
-   - `fly secrets set WORKER_TOKEN=...`
-   - `fly secrets set SOCKET_CORS_ORIGIN=https://<your-vercel-domain>`
-4. Deploy: `fly deploy`
+### Railway (socket-worker)
+1. Create a new Railway service from this repo.
+2. Set service root directory to `apps/socket-worker`.
+3. Configure environment variables:
+   - `DATABASE_URL`
+   - `WORKER_TOKEN`
+   - `SOCKET_CORS_ORIGIN=https://real-time-inventory-sneaker-drop.vercel.app`
+   - `NODE_ENV=production`
+4. Configure commands:
+   - Build command: `pnpm --filter @sneaker-drop/db build && pnpm --filter @sneaker-drop/socket-worker build`
+   - Start command: `pnpm --filter @sneaker-drop/socket-worker start`
+5. Deploy and verify health:
+   - `https://sneaker-dropsocket-worker-production.up.railway.app/health`
 
 ### Vercel (client + API)
 1. Import repo into Vercel.
@@ -233,15 +251,15 @@ curl -X POST http://localhost:3001/api/auth/register \
 3. Keep `vercel.json` settings.
 4. Set env vars:
    - `DATABASE_URL`
-   - `WORKER_URL` (`https://<fly-app>.fly.dev`)
+   - `WORKER_URL` (`https://sneaker-dropsocket-worker-production.up.railway.app`)
    - `WORKER_TOKEN`
    - `JWT_SECRET`
    - `JWT_REFRESH_SECRET`
    - `ACCESS_TOKEN_TTL` (e.g. `15m`)
    - `REFRESH_TOKEN_TTL_SECONDS` (e.g. `2592000`)
    - `REFRESH_TOKEN_COOKIE_NAME` (e.g. `refreshToken`)
-   - `CORS_ORIGIN`
-   - `VITE_SOCKET_URL` (`https://<fly-app>.fly.dev`)
+   - `CORS_ORIGIN` (`https://real-time-inventory-sneaker-drop.vercel.app`)
+   - `VITE_SOCKET_URL` (`https://sneaker-dropsocket-worker-production.up.railway.app`)
 5. Deploy.
 
 ## Developer Ergonomics
