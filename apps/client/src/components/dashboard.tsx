@@ -92,10 +92,10 @@ const useDialogFocusTrap = ({
       }
 
       const first = currentFocusables[0];
-      const last = currentFocusables[currentFocusables.length - 1];
-      if (!first || !last) {
+      if (!first) {
         return;
       }
+      const last = currentFocusables.at(-1) ?? first;
 
       if (event.shiftKey) {
         if (document.activeElement === first || document.activeElement === dialog) {
