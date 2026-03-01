@@ -87,13 +87,18 @@ const writeJson = (res: ApiResponse, statusCode: number, payload: unknown): void
 };
 
 const normalizeApiPath = (path: string): string => {
-  if (path.startsWith('/api')) {
-    return path;
+  const prefixed = path.startsWith('/') ? path : `/${path}`;
+  let normalized = prefixed;
+
+  while (normalized === '/api/api' || normalized.startsWith('/api/api/')) {
+    normalized = normalized.slice(4);
   }
-  if (path.startsWith('/')) {
-    return `/api${path}`;
+
+  if (normalized.startsWith('/api')) {
+    return normalized;
   }
-  return `/api/${path}`;
+
+  return `/api${normalized}`;
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
