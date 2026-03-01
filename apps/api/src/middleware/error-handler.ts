@@ -4,6 +4,11 @@ import { ZodError } from 'zod';
 import { AppError } from '../errors/app-error';
 import { logger } from '../utils/logger';
 
+type JsonErrorResponse = Response & {
+  status: (code: number) => JsonErrorResponse;
+  json: (body: unknown) => JsonErrorResponse;
+};
+
 export const errorHandler = (
   error: unknown,
   _req: Request,
@@ -11,9 +16,10 @@ export const errorHandler = (
   _next: NextFunction
 ): void => {
   void _next;
+  const response = res as JsonErrorResponse;
 
   if (error instanceof AppError) {
-    res.status(error.status).json({
+    response.status(error.status).json({
       error: {
         code: error.code,
         message: error.message
@@ -23,7 +29,7 @@ export const errorHandler = (
   }
 
   if (error instanceof ZodError) {
-    res.status(400).json({
+    response.status(400).json({
       error: {
         code: 'VALIDATION_ERROR',
         message: 'Invalid request payload',
@@ -38,7 +44,7 @@ export const errorHandler = (
     const paths = error.errors.map((item) => item.path);
 
     if (constraintName === 'drops_name_unique_idx' || paths.includes('name')) {
-      res.status(409).json({
+      response.status(409).json({
         error: {
           code: 'DROP_NAME_EXISTS',
           message: 'Drop name already exists'
@@ -48,7 +54,7 @@ export const errorHandler = (
     }
 
     if (paths.includes('username')) {
-      res.status(409).json({
+      response.status(409).json({
         error: {
           code: 'USERNAME_EXISTS',
           message: 'Username already exists'
@@ -57,7 +63,7 @@ export const errorHandler = (
       return;
     }
 
-    res.status(409).json({
+    response.status(409).json({
       error: {
         code: 'CONFLICT',
         message: 'Resource already exists'
@@ -67,7 +73,7 @@ export const errorHandler = (
   }
 
   logger.error({ err: error }, 'Unhandled error');
-  res.status(500).json({
+  response.status(500).json({
     error: {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error'
