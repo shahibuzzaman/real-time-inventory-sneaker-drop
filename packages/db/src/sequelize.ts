@@ -1,4 +1,5 @@
 import { Sequelize } from 'sequelize';
+import * as pg from 'pg';
 import { getDbConfig } from './config';
 import { initModels } from './models';
 
@@ -23,6 +24,7 @@ export const sequelize =
   'url' in dbConfig
     ? new Sequelize(dbConfig.url, {
         dialect: 'postgres',
+        dialectModule: pg,
         logging: false,
         ...sslOptions
       })
@@ -30,6 +32,7 @@ export const sequelize =
         host: dbConfig.host,
         port: dbConfig.port,
         dialect: 'postgres',
+        dialectModule: pg,
         logging: false,
         ...sslOptions
       });
