@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@sneaker-drop/db':
+        specifier: workspace:*
+        version: link:packages/db
     devDependencies:
       '@types/eslint':
         specifier: ^9.6.1

@@ -12,6 +12,9 @@
     "db:migrate:undo": "pnpm --filter @sneaker-drop/db db:migrate:undo",
     "format": "prettier --write ."
   },
+  "dependencies": {
+    "@sneaker-drop/db": "workspace:*"
+  },
   "devDependencies": {
     "@types/eslint": "^9.6.1",
     "@types/node": "^22.13.10",
