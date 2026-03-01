@@ -1,10 +1,5 @@
 {
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @sneaker-drop/client build",
-  "outputDirectory": "apps/client/dist",
-  "functions": {
-    "api/[...route].ts": {
-      "runtime": "nodejs20.x"
-    }
-  }
+  "outputDirectory": "apps/client/dist"
 }
