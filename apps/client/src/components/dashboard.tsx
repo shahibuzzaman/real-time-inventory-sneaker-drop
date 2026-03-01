@@ -52,6 +52,12 @@ const useDialogFocusTrap = ({
   enabled: boolean;
   onEscape: () => void;
 }): void => {
+  const onEscapeRef = useRef(onEscape);
+
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -70,7 +76,7 @@ const useDialogFocusTrap = ({
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onEscape();
+        onEscapeRef.current();
         return;
       }
 
@@ -87,6 +93,9 @@ const useDialogFocusTrap = ({
 
       const first = currentFocusables[0];
       const last = currentFocusables[currentFocusables.length - 1];
+      if (!first || !last) {
+        return;
+      }
 
       if (event.shiftKey) {
         if (document.activeElement === first || document.activeElement === dialog) {
@@ -107,7 +116,7 @@ const useDialogFocusTrap = ({
       document.removeEventListener('keydown', onKeyDown);
       previousFocus?.focus();
     };
-  }, [dialogRef, enabled, onEscape]);
+  }, [dialogRef, enabled]);
 };
 
 const DropsSkeleton = (): JSX.Element => (
