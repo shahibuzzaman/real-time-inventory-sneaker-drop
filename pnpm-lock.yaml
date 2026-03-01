@@ -11,6 +11,9 @@ importers:
       '@sneaker-drop/db':
         specifier: workspace:*
         version: link:packages/db
+      pg:
+        specifier: ^8.13.3
+        version: 8.19.0
     devDependencies:
       '@types/eslint':
         specifier: ^9.6.1

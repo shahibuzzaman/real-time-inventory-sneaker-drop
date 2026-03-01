@@ -1,5 +1,8 @@
 import { connectDb } from '@sneaker-drop/db';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+// Force Vercel file tracing to include postgres driver used by Sequelize.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('pg');
 // Load compiled API app to avoid Vercel type-checking API source with a different TS context.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const app = require('../apps/api/dist/app').default as (
