@@ -1,5 +1,10 @@
 {
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @sneaker-drop/client build",
-  "outputDirectory": "apps/client/dist"
+  "outputDirectory": "apps/client/dist",
+  "functions": {
+    "api/[...route].ts": {
+      "maxDuration": 30
+    }
+  }
 }
