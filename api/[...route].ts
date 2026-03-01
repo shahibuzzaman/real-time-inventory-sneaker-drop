@@ -1,6 +1,11 @@
 import { connectDb } from '@sneaker-drop/db';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import app from '../apps/api/src/app';
+// Load compiled API app to avoid Vercel type-checking API source with a different TS context.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const app = require('../apps/api/dist/app').default as (
+  request: IncomingMessage,
+  response: ServerResponse
+) => void;
 
 let dbReadyPromise: Promise<void> | null = null;
 
@@ -50,5 +55,5 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     }
   }
 
-  (app as unknown as (request: IncomingMessage, response: ServerResponse) => void)(req, res);
+  app(req, res);
 }

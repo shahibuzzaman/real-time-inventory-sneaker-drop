@@ -4,6 +4,8 @@ export const asyncHandler = (
   handler: (req: Request, res: Response, next: NextFunction) => Promise<void>
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    void handler(req, res, next).catch(next);
+    void handler(req, res, next).then(undefined, (error: unknown) => {
+      next(error);
+    });
   };
 };
