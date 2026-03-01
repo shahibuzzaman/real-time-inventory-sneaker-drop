@@ -1,6 +1,14 @@
 import type { ApiError, AuthSession, Drop } from '../types/api';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const normalizeApiBase = (value: string | undefined): string => {
+  const trimmed = (value ?? '').trim().replace(/\/+$/, '');
+  if (trimmed.endsWith('/api')) {
+    return trimmed.slice(0, -4);
+  }
+  return trimmed;
+};
+
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE_URL);
 
 const parseError = async (response: Response): Promise<never> => {
   let errorPayload: ApiError | null = null;
