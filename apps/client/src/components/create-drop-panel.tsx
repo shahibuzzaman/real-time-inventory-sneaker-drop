@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 type Props = {
   token: string;
   onCreated: () => void;
+  inModal?: boolean;
 };
 
 const toDateTimeLocal = (date: Date): string => {
@@ -14,7 +15,7 @@ const toDateTimeLocal = (date: Date): string => {
   return local.toISOString().slice(0, 16);
 };
 
-export const CreateDropPanel = ({ token, onCreated }: Props): JSX.Element => {
+export const CreateDropPanel = ({ token, onCreated, inModal = false }: Props): JSX.Element => {
   const defaultStartsAt = useMemo(() => toDateTimeLocal(new Date(Date.now() + 60_000)), []);
   const [name, setName] = useState('');
   const [priceCents, setPriceCents] = useState('19000');
@@ -75,7 +76,9 @@ export const CreateDropPanel = ({ token, onCreated }: Props): JSX.Element => {
   });
 
   return (
-    <section className="mb-6 rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
+    <section
+      className={`${inModal ? '' : 'mb-6 '}rounded-2xl border border-sky-100 bg-white p-5 shadow-sm`}
+    >
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-ink">Create New Drop</h2>
         <p className="text-sm text-slate-600">Set pricing, inventory, and launch time.</p>

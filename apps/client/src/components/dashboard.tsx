@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
@@ -20,6 +20,8 @@ type ReservationMap = Record<
   }
 >;
 
+type AdminView = 'OVERVIEW' | 'INVENTORY';
+
 const toDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate);
   const offset = date.getTimezoneOffset();
@@ -27,13 +29,124 @@ const toDateTimeLocal = (isoDate: string): string => {
   return local.toISOString().slice(0, 16);
 };
 
+const focusableSelector = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
+const getFocusableElements = (container: HTMLElement): HTMLElement[] =>
+  Array.from(container.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+    (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true'
+  );
+
+const useDialogFocusTrap = ({
+  dialogRef,
+  enabled,
+  onEscape
+}: {
+  dialogRef: RefObject<HTMLDivElement | null>;
+  enabled: boolean;
+  onEscape: () => void;
+}): void => {
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusables = getFocusableElements(dialog);
+    (focusables[0] ?? dialog).focus();
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onEscape();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const currentFocusables = getFocusableElements(dialog);
+      if (currentFocusables.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = currentFocusables[0];
+      const last = currentFocusables[currentFocusables.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first || document.activeElement === dialog) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [dialogRef, enabled, onEscape]);
+};
+
+const DropsSkeleton = (): JSX.Element => (
+  <div className="grid gap-4 md:grid-cols-2">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <article
+        key={`skeleton-drop-${index}`}
+        className="animate-pulse rounded-2xl border border-sky-100 bg-white p-5 shadow-sm"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <div className="h-5 w-28 rounded bg-slate-200" />
+            <div className="h-4 w-16 rounded bg-slate-200" />
+          </div>
+          <div className="h-6 w-24 rounded-full bg-slate-200" />
+        </div>
+        <div className="mt-6 h-10 w-20 rounded bg-slate-200" />
+        <div className="mt-6 grid gap-2 sm:grid-cols-2">
+          <div className="h-10 rounded-xl bg-slate-200" />
+          <div className="h-10 rounded-xl bg-slate-200" />
+        </div>
+      </article>
+    ))}
+  </div>
+);
+
 export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
   const isAdmin = user.role === 'ADMIN';
   const queryClient = useQueryClient();
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const createDialogRef = useRef<HTMLDivElement | null>(null);
+  const editDialogRef = useRef<HTMLDivElement | null>(null);
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
   const [reservations, setReservations] = useState<ReservationMap>({});
   const [clock, setClock] = useState(() => Date.now());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [activeAdminView, setActiveAdminView] = useState<AdminView>('OVERVIEW');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [createDropModalOpen, setCreateDropModalOpen] = useState(false);
   const [editingDropId, setEditingDropId] = useState<string | null>(null);
   const [confirmDeleteDropId, setConfirmDeleteDropId] = useState<string | null>(null);
   const [deletingDropId, setDeletingDropId] = useState<string | null>(null);
@@ -154,6 +267,34 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
   const editingDrop = (dropsQuery.data ?? []).find((drop) => drop.id === editingDropId);
   const confirmingDeleteDrop = (dropsQuery.data ?? []).find((drop) => drop.id === confirmDeleteDropId);
 
+  useDialogFocusTrap({
+    dialogRef: createDialogRef,
+    enabled: Boolean(isAdmin && createDropModalOpen),
+    onEscape: () => setCreateDropModalOpen(false)
+  });
+  useDialogFocusTrap({
+    dialogRef: editDialogRef,
+    enabled: Boolean(isAdmin && editingDrop),
+    onEscape: closeEditModal
+  });
+  useDialogFocusTrap({
+    dialogRef: deleteDialogRef,
+    enabled: Boolean(isAdmin && confirmingDeleteDrop),
+    onEscape: () => setConfirmDeleteDropId(null)
+  });
+
+  useEffect(() => {
+    if (!createDropModalOpen && !editingDrop && !confirmingDeleteDrop) {
+      return;
+    }
+
+    const currentOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = currentOverflow;
+    };
+  }, [createDropModalOpen, editingDrop, confirmingDeleteDrop]);
+
   const reserveMutation = useMutation({
     mutationFn: ({ dropId }: { dropId: string }) => api.reserveDrop(dropId, token),
     onSuccess: (reservation) => {
@@ -264,20 +405,73 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
     });
   }, [clock, reservations]);
 
-  return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-black text-ink">Inventory Dashboard</h1>
-        </div>
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            type="button"
-            onClick={() => setProfileMenuOpen((current) => !current)}
-            className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-            aria-haspopup="menu"
-            aria-expanded={profileMenuOpen}
-          >
+  const drops = dropsQuery.data ?? [];
+  const kpis = useMemo(() => {
+    const liveDrops = drops.filter(
+      (drop) => drop.availableStock > 0 && new Date(drop.startsAt).getTime() <= clock
+    ).length;
+    const upcomingDrops = drops.filter((drop) => new Date(drop.startsAt).getTime() > clock).length;
+    const totalAvailable = drops.reduce((sum, drop) => sum + drop.availableStock, 0);
+    const activeReservations = Object.values(reservations).filter(
+      (reservation) => new Date(reservation.expiresAt).getTime() > clock
+    ).length;
+
+    return [
+      { label: 'Live Drops', value: liveDrops },
+      { label: 'Upcoming', value: upcomingDrops },
+      { label: 'Total Available', value: totalAvailable },
+      { label: 'My Active Reservations', value: activeReservations }
+    ];
+  }, [clock, drops, reservations]);
+  const adminMenuItems: Array<{ key: AdminView; label: string }> = [
+    { key: 'OVERVIEW', label: 'Overview' },
+    { key: 'INVENTORY', label: 'Inventory' }
+  ];
+  const filteredAdminDrops = useMemo(() => {
+    const query = inventorySearch.trim().toLowerCase();
+    if (query.length === 0) {
+      return drops;
+    }
+    return drops.filter((drop) => drop.name.toLowerCase().includes(query));
+  }, [drops, inventorySearch]);
+
+  const profileMenu = (
+    <div className="relative" ref={profileMenuRef}>
+      <button
+        type="button"
+        onClick={() => setProfileMenuOpen((current) => !current)}
+        className={
+          isAdmin
+            ? 'flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50'
+            : 'flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50'
+        }
+        aria-haspopup="menu"
+        aria-expanded={profileMenuOpen}
+        aria-label={user.username}
+      >
+        {isAdmin ? (
+          <>
+            <span className="font-medium">{user.username}</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+              {user.username.charAt(0).toUpperCase()}
+            </span>
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              className={`h-4 w-4 transition ${profileMenuOpen ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            >
+              <path
+                d="M5 7.5 10 12.5l5-5"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </>
+        ) : (
+          <>
             <span className="font-medium">{user.username}</span>
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-xs font-semibold text-white">
               {user.username.charAt(0).toUpperCase()}
@@ -289,44 +483,122 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
               className={`h-4 w-4 transition ${profileMenuOpen ? 'rotate-180' : ''}`}
               aria-hidden="true"
             >
-              <path d="M5 7.5 10 12.5l5-5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5 7.5 10 12.5l5-5"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
-          </button>
+          </>
+        )}
+      </button>
 
-          {profileMenuOpen && (
-            <div className="absolute right-0 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  onSignOut();
-                }}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100"
-              >
-                Sign out
-              </button>
-            </div>
+      {profileMenuOpen && (
+        <div className="absolute right-0 z-20 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+          {isAdmin && (
+            <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {user.username}
+            </p>
           )}
-        </div>
-      </header>
-
-      {user.role === 'ADMIN' && (
-        <>
-          <CreateDropPanel
-            token={token}
-            onCreated={() => {
-              void refreshDrops();
+          <button
+            type="button"
+            onClick={() => {
+              setProfileMenuOpen(false);
+              onSignOut();
             }}
-          />
-        </>
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const inventoryErrorPanel = (
+    <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6 text-rose-700">
+      <h2 className="text-base font-semibold">Unable to load inventory</h2>
+      <p className="mt-1 text-sm">Please try again. If this continues, check API availability.</p>
+      <button
+        type="button"
+        onClick={() => {
+          void dropsQuery.refetch();
+        }}
+        className="mt-4 rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+      >
+        Retry
+      </button>
+    </section>
+  );
+
+  const adminOverviewContent = (
+    <>
+      <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((item) => (
+          <article
+            key={item.label}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
+            <p className="mt-2 text-2xl font-black text-ink">{item.value}</p>
+          </article>
+        ))}
+      </section>
+
+      {dropsQuery.isLoading && <DropsSkeleton />}
+      {dropsQuery.isError && inventoryErrorPanel}
+
+      {!dropsQuery.isLoading && !dropsQuery.isError && (
+        <section className="rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">Overview</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Use Inventory from the sidebar to search, create, edit, and delete drops.
+          </p>
+        </section>
+      )}
+    </>
+  );
+
+  const adminInventoryContent = (
+    <>
+      <section className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          type="search"
+          value={inventorySearch}
+          onChange={(event) => setInventorySearch(event.target.value)}
+          placeholder="Search inventory by drop name"
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 sm:max-w-sm"
+          aria-label="Inventory search"
+        />
+        <button
+          type="button"
+          onClick={() => setCreateDropModalOpen(true)}
+          className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+        >
+          Add New
+        </button>
+      </section>
+
+      {dropsQuery.isLoading && <DropsSkeleton />}
+      {dropsQuery.isError && inventoryErrorPanel}
+
+      {!dropsQuery.isLoading && !dropsQuery.isError && filteredAdminDrops.length === 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">
+            {drops.length === 0 ? 'No inventory yet' : 'No matching drops'}
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            {drops.length === 0
+              ? 'Click Add New to create your first drop.'
+              : 'Try a different search term.'}
+          </p>
+        </section>
       )}
 
-      {dropsQuery.isLoading && <p className="text-slate-700">Loading inventory...</p>}
-      {dropsQuery.isError && <p className="text-red-600">Unable to load inventory.</p>}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {(dropsQuery.data ?? []).map((drop) => (
-          isAdmin ? (
+      {!dropsQuery.isLoading && !dropsQuery.isError && filteredAdminDrops.length > 0 && (
+        <div className="space-y-4">
+          {filteredAdminDrops.map((drop) => (
             <DropCard
               key={drop.id}
               mode="ADMIN"
@@ -335,16 +607,46 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
               onEdit={() => openEditModal(drop)}
               onDelete={() => setConfirmDeleteDropId(drop.id)}
             />
-          ) : (
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const userContent = (
+    <>
+      <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((item) => (
+          <article
+            key={item.label}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
+            <p className="mt-2 text-2xl font-black text-ink">{item.value}</p>
+          </article>
+        ))}
+      </section>
+
+      {dropsQuery.isLoading && <DropsSkeleton />}
+      {dropsQuery.isError && inventoryErrorPanel}
+
+      {!dropsQuery.isLoading && !dropsQuery.isError && drops.length === 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">No drops available right now</h2>
+          <p className="mt-2 text-sm text-slate-600">Check back soon for the next sneaker release.</p>
+        </section>
+      )}
+
+      {!dropsQuery.isLoading && !dropsQuery.isError && drops.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {drops.map((drop) => (
             <DropCard
               key={drop.id}
               mode="USER"
               drop={drop}
               reservation={reservations[drop.id]}
               reserving={reserveMutation.isPending && reserveMutation.variables?.dropId === drop.id}
-              purchasing={
-                purchaseMutation.isPending && purchaseMutation.variables?.dropId === drop.id
-              }
+              purchasing={purchaseMutation.isPending && purchaseMutation.variables?.dropId === drop.id}
               onReserve={() => reserveMutation.mutate({ dropId: drop.id })}
               onPurchase={(reservationId) =>
                 purchaseMutation.mutate({
@@ -360,16 +662,132 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
                 });
               }}
             />
-          )
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const content = isAdmin
+    ? activeAdminView === 'INVENTORY'
+      ? adminInventoryContent
+      : adminOverviewContent
+    : userContent;
+
+  return (
+    <div className={isAdmin ? 'min-h-screen bg-white' : ''}>
+      {isAdmin ? (
+        <div className="flex min-h-screen bg-slate-50">
+          <aside className="hidden w-56 shrink-0 border-r border-slate-200 bg-white p-5 md:block">
+            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Admin</p>
+            <nav className="mt-5 space-y-2">
+              {adminMenuItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setActiveAdminView(item.key)}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${
+                    activeAdminView === item.key
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            <header className="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-lg font-semibold text-slate-900">
+                    {activeAdminView === 'INVENTORY' ? 'Inventory' : 'Overview'}
+                  </h1>
+                </div>
+                {profileMenu}
+              </div>
+            </header>
+
+            <main className="flex-1 px-4 py-6 sm:px-6">
+              <div className="mx-auto w-full max-w-6xl">{content}</div>
+            </main>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-3xl font-black text-ink">Inventory Dashboard</h1>
+            {profileMenu}
+          </header>
+          {content}
+        </div>
+      )}
+
+      {isAdmin && createDropModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setCreateDropModalOpen(false);
+            }
+          }}
+        >
+          <div
+            ref={createDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-drop-title"
+            tabIndex={-1}
+            className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 id="create-drop-title" className="text-lg font-semibold text-ink">
+                Add New Drop
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCreateDropModalOpen(false)}
+                className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+            <CreateDropPanel
+              token={token}
+              inModal
+              onCreated={() => {
+                setCreateDropModalOpen(false);
+                void refreshDrops();
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {isAdmin && editingDrop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeEditModal();
+            }
+          }}
+        >
+          <div
+            ref={editDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-drop-title"
+            tabIndex={-1}
+            className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl"
+          >
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-ink">Edit Drop</h3>
+                <h3 id="edit-drop-title" className="text-lg font-semibold text-ink">
+                  Edit Drop
+                </h3>
                 <p className="text-sm text-slate-600">Editing: {editingDrop.name}</p>
               </div>
               <button
@@ -484,35 +902,59 @@ export const Dashboard = ({ user, token, onSignOut }: Props): JSX.Element => {
       )}
 
       {isAdmin && confirmingDeleteDrop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-ink">Delete Drop?</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Are you sure you want to delete{' '}
-              <span className="font-semibold text-ink">{confirmingDeleteDrop.name}</span>? This action
-              cannot be undone.
-            </p>
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm"
-                onClick={() => setConfirmDeleteDropId(null)}
-                disabled={deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                onClick={() => deleteMutation.mutate({ dropId: confirmingDeleteDrop.id })}
-                disabled={deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id}
-              >
-                {deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id
-                  ? 'Deleting...'
-                  : 'Delete'}
-              </button>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setConfirmDeleteDropId(null);
+            }
+          }}
+        >
+          <div
+            ref={deleteDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-drop-title"
+            tabIndex={-1}
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-xl"
+          >
+            <div className="border-b border-rose-200 bg-rose-50 px-5 py-4">
+              <h3 id="delete-drop-title" className="text-lg font-semibold text-rose-700">
+                Delete Drop Permanently
+              </h3>
+              <p className="mt-2 text-sm text-rose-700/80">
+                You are deleting <span className="font-semibold">{confirmingDeleteDrop.name}</span>. This
+                action cannot be undone.
+              </p>
             </div>
+
+            <form
+              className="px-5 py-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                deleteMutation.mutate({ dropId: confirmingDeleteDrop.id });
+              }}
+            >
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setConfirmDeleteDropId(null)}
+                  disabled={deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                  disabled={deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id}
+                >
+                  {deleteMutation.isPending && deletingDropId === confirmingDeleteDrop.id
+                    ? 'Deleting...'
+                    : 'Delete Forever'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
