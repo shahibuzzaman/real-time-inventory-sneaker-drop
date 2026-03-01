@@ -12,6 +12,7 @@ try {
 let dbReadyPromise: Promise<void> | null = null;
 let connectDbFn: (() => Promise<void>) | null = null;
 let appHandler: ((request: IncomingMessage, response: ServerResponse) => void) | null = null;
+const DB_INIT_TIMEOUT_MS = Number.parseInt(process.env.DB_INIT_TIMEOUT_MS ?? '8000', 10);
 
 const getConnectDb = async (): Promise<() => Promise<void>> => {
   if (!connectDbFn) {
@@ -25,10 +26,31 @@ const getConnectDb = async (): Promise<() => Promise<void>> => {
 const ensureDbConnection = async (): Promise<void> => {
   if (!dbReadyPromise) {
     const connectDb = await getConnectDb();
-    dbReadyPromise = connectDb();
+    dbReadyPromise = connectDb().catch((error: unknown) => {
+      dbReadyPromise = null;
+      throw error;
+    });
   }
 
   await dbReadyPromise;
+};
+
+const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(label));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 };
 
 const getAppHandler = (): ((request: IncomingMessage, response: ServerResponse) => void) => {
@@ -95,7 +117,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       req.url = queryPart ? `${normalizedPath}?${queryPart}` : normalizedPath;
     }
 
-    await ensureDbConnection();
+    await withTimeout(
+      ensureDbConnection(),
+      DB_INIT_TIMEOUT_MS,
+      `Database initialization timed out after ${DB_INIT_TIMEOUT_MS}ms`
+    );
     const app = getAppHandler();
     app(req, res);
   } catch (error) {
